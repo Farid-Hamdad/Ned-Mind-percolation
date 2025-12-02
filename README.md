@@ -5,7 +5,7 @@ Discovery of cognitive percolation threshold p_c ≈ 0.055 in self-organizing ne
 **Author**: Farid Hamdad ([ORCID](https://orcid.org/0009-0009-2097-1625))  
 **Lab**: NeD-Mind Laboratory (Independent Research)  
 **Contact**: farid_hamdad@ned-mind.org  
-**Status**: Paper submitted to arXiv (bellow)
+**Status**: Paper submitted to arXiv (next)
 
 ---
 
