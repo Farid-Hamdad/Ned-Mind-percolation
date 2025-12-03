@@ -9,7 +9,7 @@ Discovery of cognitive percolation threshold p_c ≈ 0.055 in self-organizing ne
 
 ---
 
-## 🧠 THE DISCOVERY
+## THE DISCOVERY
 
 Neural networks exhibit a **first-order phase transition** at critical density `p_c ≈ 0.055`.  
 Below this threshold, **cognitive coherence collapses to zero in one step**.
@@ -23,7 +23,7 @@ Below this threshold, **cognitive coherence collapses to zero in one step**.
 
 ---
 
-## ⚡ QUICK START (Reproduce in 5 minutes)
+##  QUICK START (Reproduce in 5 minutes)
 
 ```bash
 # Clone & install
