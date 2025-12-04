@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-NeD-Mind Core v10.2K - dynamics engine
-Corrections v10.2K:
-- Added ENABLE_STRUCTURE_LOG and STRUCTURE_LOG_INTERVAL config fields
-- Enhanced validation for topology parameters
+NeD-Mind Core v10.2K - RESTORED with physical coherence
 """
+
 from __future__ import annotations
 import numpy as np
 from scipy import sparse
 import logging
 from typing import Optional
 from pydantic import BaseModel, Field, validator
-
 logger = logging.getLogger("NeD-Mind.core")
 
+# ========== CORE CONFIG ==========
 class CoreConfig(BaseModel):
     N: int = Field(128, gt=0, le=20000)
     C: int = Field(8, gt=0, le=512)
@@ -33,14 +31,14 @@ class CoreConfig(BaseModel):
     NOISE_AMP: float = Field(0.02, ge=0.0, le=1.0)
     TRACE_SAMPLING_RATE: float = Field(0.1, ge=0.0, le=1.0)
     ENABLE_TOPO_PLASTICITY: bool = Field(True)
-    ENABLE_STRUCTURE_LOG: bool = Field(False, description="Enable structural diagnostics")
+    ENABLE_STRUCTURE_LOG: bool = Field(False)
     STRUCTURE_LOG_INTERVAL: int = Field(50, gt=0, le=10000)
     GLOBAL_GOAL: Optional[np.ndarray] = Field(default_factory=lambda: np.zeros(8, dtype=np.float32))
     OUTDIR: str = Field("./output")
 
     class Config:
         arbitrary_types_allowed = True
-
+    
     @validator('GLOBAL_GOAL', pre=True)
     def parse_goal(cls, v):
         if v is None:
@@ -50,7 +48,7 @@ class CoreConfig(BaseModel):
             return np.asarray(arr, dtype=np.float32)
         return np.asarray(v, dtype=np.float32)
 
-# ---------------- TOPOLOGY ----------------
+# ========== TOPOLOGY ==========
 def small_world_vectorized(N: int, k: int, p: float, seed: int) -> np.ndarray:
     rng = np.random.default_rng(seed)
     W = np.zeros((N, N), dtype=np.float32)
@@ -97,21 +95,22 @@ def density_correct(W: sparse.csr_matrix, target: float, seed: int) -> sparse.cs
                 W_lil[i, j] = 1.0
     return W_lil.tocsr()
 
-# ---------------- CONCEPT ----------------
+# ========== CONCEPT ==========
 class Concept:
     __slots__ = ('idx', 'C', 'A', 'tau_mem', 'h_clip', 'rng')
-    def __init__(self, idx:int, C:int, tau_mem:float, h_clip:float, seed:int):
+    def __init__(self, idx: int, C: int, tau_mem: float, h_clip: float, seed: int):
         self.idx = idx
         self.C = C
         self.tau_mem = tau_mem
         self.h_clip = h_clip
         self.rng = np.random.default_rng(seed)
         self.A = self.rng.uniform(-0.05, 0.05, size=C).astype(np.float32)
+    
     def update(self, delta: np.ndarray):
         self.A += delta
         np.clip(self.A, -self.h_clip, self.h_clip, out=self.A)
 
-# ---------------- DYNAMICS ----------------
+# ========== DYNAMICS ==========
 def compute_delta_vectorized(A_all: np.ndarray, goal: np.ndarray,
                              influence: np.ndarray, eta: float, noise: float,
                              grad: np.ndarray, tau_mem: float,
@@ -124,23 +123,7 @@ def compute_delta_vectorized(A_all: np.ndarray, goal: np.ndarray,
     delta = eta * (recall + external + goal_pull + coherence_drive + noise_arr)
     return delta
 
-def compute_coherence(A_all: np.ndarray, goal: np.ndarray) -> float:
-    if not np.isfinite(A_all).all() or not np.isfinite(goal).all():
-        logger.warning("NaN/Inf in coherence inputs")
-        return 0.5
-    norms = np.linalg.norm(A_all, axis=1, keepdims=True)
-    np.maximum(norms, 1e-8, out=norms)
-    normalized = A_all / norms
-    goal_norm = np.linalg.norm(goal)
-    if goal_norm < 1e-8:
-        goal_norm = 1.0
-    alignments = np.dot(normalized, goal) / goal_norm
-    result = np.mean(alignments)
-    if not np.isfinite(result):
-        return 0.5
-    return float(np.clip(result, -1.0, 1.0))
-
-def compute_coherence_gradient(A_all: np.ndarray, goal: np.ndarray, 
+def compute_cohesion_gradient(A_all: np.ndarray, goal: np.ndarray, 
                                epsilon: float = 0.02, sample_ratio: float = 0.2,
                                rng: Optional[np.random.Generator] = None) -> np.ndarray:
     N = A_all.shape[0]
@@ -161,6 +144,40 @@ def compute_coherence_gradient(A_all: np.ndarray, goal: np.ndarray,
         grad[i] = (coh_plus - coh_minus) / (2 * epsilon)
     return grad
 
+# ========== PHYSICAL COHERENCE (CORRECTED) ==========
+def compute_coherence(A_all: np.ndarray, goal: np.ndarray) -> float:
+    """
+    PHYSICAL COHERENCE: energy projected on goal (no normalization of A_all)
+    Returns 0.0 when network activity collapses (mort physique).
+    Returns 1.0 when fully aligned with full energy.
+    """
+    # Safety: zero goal
+    if np.linalg.norm(goal) < 1e-8:
+        logger.warning("Goal vector is zero - returning 0.0")
+        return 0.0
+    
+    # Safety: NaN/Inf
+    if not np.isfinite(A_all).all():
+        logger.warning("NaN/Inf in activity - returning 0.0")
+        return 0.0
+    
+    # METRIC 1: Total energy (average L2 norm of concepts)
+    # Si A_all → 0, alors total_energy → 0 = mort physique
+    total_energy = np.mean(np.linalg.norm(A_all, axis=1))
+    
+    # METRIC 2: Raw alignment (dot product, PAS DE NORMALISATION)
+    # On garde l'amplitude : si A_all → 0, alors alignment → 0
+    goal_unit = goal / np.linalg.norm(goal)
+    alignment = np.mean(np.abs(np.dot(A_all, goal_unit)))
+    
+    # PHYSICAL COHERENCE = ENERGIE × ALIGNEMENT
+    # Si l'énergie s'effondre → coh = 0
+    # Si l'alignement s'effondre → coh = 0
+    coherence = float(total_energy * alignment)
+    
+    # Clip to [0, 1]
+    return float(np.clip(coherence, 0.0, 1.0))
+# ========== TOPOLOGY UPDATE ==========
 def sparse_coactivity_update(W: sparse.csr_matrix, activity: np.ndarray, eps: float, 
                             top_frac: float = 0.15, k_per_node: int = 6, 
                             seed: int = 42) -> sparse.csr_matrix:
@@ -184,22 +201,52 @@ def sparse_coactivity_update(W: sparse.csr_matrix, activity: np.ndarray, eps: fl
     boost_matrix = eps * np.outer(activity[active_idx], activity[candidates])
     
     for r_i, i in enumerate(active_idx):
-        # Récupération sécurisée des valeurs candidates
         current_vals = np.array(W_lil[i, candidates].toarray().ravel(), dtype=np.float32)
-        
-        # Mise à jour cumulative
         updated_vals = np.clip(current_vals + boost_matrix[r_i], 0.0, 1.0)
-        
-        # Affaiblissement des connexions faibles
         weak_mask = updated_vals < 0.1
-        n_weak = weak_mask.sum()
-        if n_weak > k_per_node:
-            weak_indices = np.where(weak_mask)[0]
-            to_weaken = rng.choice(weak_indices, k_per_node, replace=False)
+        if weak_mask.sum() > k_per_node:
+            to_weaken = rng.choice(np.where(weak_mask)[0], k_per_node, replace=False)
             updated_vals[to_weaken] *= (1.0 - eps)
-        
-        # Assignation segmentée (ne touche que les candidats)
         W_lil[i, candidates] = updated_vals
     
     W_lil.setdiag(0)
     return W_lil.tocsr()
+
+# ========== COHERENCE GRADIENT ==========
+def compute_coherence_gradient(A_all: np.ndarray, goal: np.ndarray, 
+                               epsilon: float = 0.02, sample_ratio: float = 0.2,
+                               rng: Optional[np.random.Generator] = None) -> np.ndarray:
+    N = A_all.shape[0]
+    grad = np.zeros(N, dtype=np.float32)
+    if rng is None:
+        rng = np.random.default_rng(42)
+    
+    sample_size = max(1, int(N * sample_ratio))
+    indices = rng.choice(N, size=min(sample_size, N), replace=False)
+    
+    for i in indices:
+        A_plus = A_all.copy()
+        A_plus[i] += epsilon
+        coh_plus = compute_coherence(A_plus, goal)
+        A_minus = A_all.copy()
+        A_minus[i] -= epsilon
+        coh_minus = compute_coherence(A_minus, goal)
+        grad[i] = (coh_plus - coh_minus) / (2 * epsilon)
+    return grad
+
+# ========== CONCEPTS & DYNAMICS ==========
+class Concept:
+    __slots__ = ('idx', 'C', 'A', 'tau_mem', 'h_clip', 'rng')
+    def __init__(self, idx: int, C: int, tau_mem: float, h_clip: float, seed: int):
+        self.idx = idx
+        self.C = C
+        self.tau_mem = tau_mem
+        self.h_clip = h_clip
+        self.rng = np.random.default_rng(seed)
+        self.A = self.rng.uniform(-0.05, 0.05, size=C).astype(np.float32)
+    
+    def update(self, delta: np.ndarray):
+        self.A += delta
+        np.clip(self.A, -self.h_clip, self.h_clip, out=self.A)
+
+# ========== END OF FILE ==========
