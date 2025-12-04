@@ -1,28 +1,50 @@
-# NeD-Mind v10.2K - Critical Percolation Experiment
-# Run: python nedmind_runner.py --config perc_test.yaml
+# scenarios/Ned-Mind-dead.yaml
+# NeD-Mind v10.2K - Cognitive Death Percolation Experiment
+# DOI: [à venir après Zenodo]
+# Author: Farid Hamdad (ORCID: 0009-0009-2097-1625)
 
 CORE:
-  N: 128
-  C: 8
-  STEPS: 200
+  N: 16                       # Réseau minimal pour reproductibilité rapide
+  C: 8                        # Dimensions conceptuelles
+  STEPS: 50                  # Nombre de steps (2 secondes de calcul)
   SEED: 42
-  BASE_DENSITY: 0.10
-  TOPO_REWIRE_PROB: 0.15
-  TOPO_EPS: 0.015
-  TOPO_K: 6
+  BASE_DENSITY: 0.15         # Démarrage au-dessus du seuil critique p_c ≈ 0.055
+  ENABLE_TOPO_PLASTICITY: false  # Désactive la régénération pour observer la mort
+  TOPO_EPS: 0.01
+  TOPO_K: 3                  # 3 connexions initiales par nœud
   TAU_MEM: 0.75
-  ETA: 0.01
-  H_CLIP: 1.5
-  NOISE_AMP: 0.02
-  ENABLE_TOPO_PLASTICITY: true
+  ETA: 0.02                 # Apprentissage rapide
+  H_CLIP: 0.1               # Capacité neuronale limitée
+  NOISE_AMP: 0.0            # Pas de bruit pour pureté expérimentale
   ENABLE_STRUCTURE_LOG: true
-  STRUCTURE_LOG_INTERVAL: 50
-  GLOBAL_GOAL: [0,0,0,0,0,0,0,0]
-  OUTDIR: "./output"
+  GLOBAL_GOAL: [0.08, -0.06, 0.04, -0.02, 0.01, 0.0, -0.01, 0.02]  # Objectif représentable
+  OUTDIR: "./Ned-Mind-dead"
+
+REFLEXIVE:
+  buffer_size: 200
+  safety_threshold: 2.0
+  lead_window: 50
+  corr_threshold: 0.08
+  feedback_strength: 0.0      # MONITOR DÉSACTIVÉ pour pureté
 
 SCENARIO:
-  - step: 50
+  # ABLATION 1 : 95% des connexions des hubs supprimés
+  - step: 10
+    ablate_hubs: true
+    ablation_fraction: 0.95
+    hub_threshold: 0.85
+    apply_density_correct: false  # CRITIQUE : PAS DE RÉGÉNÉRATION
+
+  # ABLATION 2 : 90% de destruction supplémentaire
+  - step: 25
     ablate_hubs: true
     ablation_fraction: 0.90
+    hub_threshold: 0.80
     apply_density_correct: false
-    hub_threshold: 0.90
+
+  # ABLATION 3 : 85% de destruction, système à DENSITÉ ZÉRO
+  - step: 40
+    ablate_hubs: true
+    ablation_fraction: 0.85
+    hub_threshold: 0.75
+    apply_density_correct: false
